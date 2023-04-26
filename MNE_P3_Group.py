@@ -42,7 +42,7 @@ def analysis(partNum):
 
 
     # Epoch (with Rejection) & Average
-    epochs = mne.Epochs(raw,events=events, event_id=events_id, baseline=None, preload=True, tmin=-0.2, tmax=0.5, reject=dict(eeg=150e-6))
+    epochs = mne.Epochs(raw, events=events, event_id=events_id, baseline=(-0.2, 0), preload=True, tmin=-0.2, tmax=0.5, reject=dict(eeg=150e-6))
     
     # Exclude Participant depending on the rejection
     if epochs.drop_log_stats() > 25:
