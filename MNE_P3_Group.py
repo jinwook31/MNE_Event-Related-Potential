@@ -7,18 +7,21 @@ import mne
 from mne.preprocessing import ICA, create_eog_epochs
 from mne.channels import combine_channels
 
+pList = ['P01', 'P02', 'P04', 'P05']
+ytick = 9
 
 def analysis(partNum):
-    fPath = './' + partNum + '/' + partNum + '.set'
+    fPath = '../Raw_data/' + partNum + '.vhdr'
 
     #Read raw data with MNE
-    raw = mne.io.read_raw_eeglab(fPath, preload=False)
+    raw = mne.io.read_raw_brainvision(fPath, preload=False)
     raw.pick_types(meg=False, eeg=True, eog=False).load_data()
-    raw.drop_channels(['ExG 1','ExG 2', 'A2','Packet Counter', 'TRIGGER'])  # Remove unused channel
+    raw.drop_channels(['ExG 1','ExG 2', 'A2'])  # Remove unused channel
 
 
     #Get event code from annotations
     events, events_id = mne.events_from_annotations(raw, event_id='auto')
+    raw, events = raw.resample(256, events=events)
 
 
     # Sensor Location (Topological)
@@ -32,12 +35,18 @@ def analysis(partNum):
 
 
     # Event discription
-    events_id={'odd':1,'response':2,'dummy':3,'normal':4}  #redifine the events_id
-    events = mne.pick_events(events, include=[1, 2, 3, 4])  #pick events  that we interested
+    events_id={'Normal0':10002,'Normal1':10003,'Normal2':10004,'Normal3':10005,'odd0':10007,'odd1':10008,'odd2':10009,'odd3':10010}  #redifine the events_id
+    events = mne.pick_events(events, include=[10002, 10003, 10004, 10005,  10007, 10008, 10009, 10010])  #pick events  that we interested
 
 
     # ICA
-    ica=ICA(n_components=29, method='fastica', random_state=89).fit(raw)  #define the parameter of ica and fit it to epochs
+    epochs_ica = mne.Epochs(raw, events=events, event_id=events_id, preload=True, tmin=-0.8, tmax=1.0)
+
+    from autoreject import get_rejection_threshold
+    reject = get_rejection_threshold(epochs_ica)
+
+    ica=ICA(n_components=28, method='fastica', random_state=89).fit(epochs_ica, reject=reject)  #define the parameter of ica and fit it to epochs
+
     ica.apply(raw)  # remove the component that we selected
 
 
@@ -47,17 +56,26 @@ def analysis(partNum):
     # Exclude Participant depending on the rejection
     if epochs.drop_log_stats() > 25:
         print("P" + partNum + " was excluded! (over 25)")
-        return
-    else:
-        epochs.apply_baseline(baseline=(-0.2, 0))   
-        epochs.save('./MNE Result/' + partNum + '.fif', overwrite=True)
-        evoked_normal = epochs['normal'].average()
-        evoked_odd = epochs['odd'].average()
+        #return
+    #else:
+    epochs.apply_baseline(baseline=(-0.2, 0))   
+    epochs.save('./MNE Result/' + partNum + '.fif', overwrite=True)
 
-    # Plot Graph
-    condition_index={'odd':evoked_odd,'normal':evoked_normal}
-    plot = mne.viz.plot_compare_evokeds(condition_index, picks=['Pz'], ci=None, combine='mean',legend='lower right',show_sensors='upper left', show=False) #plot compared ERP
-    plot[0].savefig('./MNE Result/' + partNum + '.jpg')
+    for i in range(0, 4):
+        normalCond = 'Normal' + str(i)
+        oddCond = 'odd' + str(i)
+        evoked_normal = epochs[normalCond].average()
+        evoked_odd = epochs[oddCond].average()
+
+        # Plot ERP Graph
+        condition_index={'odd':evoked_odd, 'normal':evoked_normal}
+        plot = mne.viz.plot_compare_evokeds(condition_index, picks=['Pz'], ci=None, combine='mean',legend='lower right',show_sensors='upper left', show=False, ylim=dict(eeg=[-ytick, ytick])) #plot compared ERP
+        plot[0].savefig('./MNE Result/Condition ' + str(i) + '_' + partNum + '.jpg')
+
+        # Plot Difference Waveform Graph
+        evokeds_diff = mne.combine_evoked([evoked_odd, evoked_normal], weights=[1, -1])
+        plot = mne.viz.plot_compare_evokeds({'Mismatch-Match':evokeds_diff}, picks=['Pz'], show_sensors='upper right', combine='mean', ylim=dict(eeg=[-ytick, ytick]), title='Difference Wave (Condition_' + str(i) + ')')
+        plot[0].savefig('./MNE Result/Differnece waveform_Condition ' + str(i) + '_' + partNum + '.jpg')
 
 
 
@@ -75,17 +93,29 @@ def grandAvg():
     epochs = mne.concatenate_epochs(res)  # Concate and make full epochs
 
     # Plot Grand Average
-    evoked_normal = epochs['normal'].average()
-    evoked_odd = epochs['odd'].average()
-    condition_index={'odd':evoked_odd,'normal':evoked_normal} 
-    plot = mne.viz.plot_compare_evokeds(condition_index, picks=['Pz'], ci=None, combine='mean',legend='lower right',show_sensors='upper left', show=False) #plot compared ERP
-    plot[0].savefig('./MNE Result/Grand Average.jpg')
+    for i in range(0, 4):
+        normalCond = 'Normal' + str(i)
+        oddCond = 'odd' + str(i)
+        evoked_normal = epochs[normalCond].average()
+        evoked_odd = epochs[oddCond].average()
+
+        # Plot ERP Graph
+        condition_index={'odd':evoked_odd, 'normal':evoked_normal}
+        plot = mne.viz.plot_compare_evokeds(condition_index, picks=['Pz'], ci=None, combine='mean',legend='lower right',show_sensors='upper left', show=False, ylim=dict(eeg=[-ytick, ytick])) #plot compared ERP
+        plot[0].savefig('./MNE Result/Condition ' + str(i) + ' Grand Average.jpg')
+
+        # Plot Difference Waveform Graph
+        evokeds_diff = mne.combine_evoked([evoked_odd, evoked_normal], weights=[1, -1])
+        plot = mne.viz.plot_compare_evokeds({'Mismatch-Match':evokeds_diff}, picks=['Pz'], show_sensors='upper right', combine='mean', ylim=dict(eeg=[-ytick, ytick]), title='Difference Wave (Condition_' + str(i) + ')')
+        plot[0].savefig('./MNE Result/Differnece waveform_Condition ' + str(i) + '.jpg')
+
+
 
 
 
 def main():
-    for i in range(1, 10):
-        #analysis(str(i))
+    for p in pList:
+        analysis(p)
         pass
 
     grandAvg()
